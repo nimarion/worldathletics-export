@@ -1,15 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Papa from "papaparse";
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { getAthlete } from "./api/worldathletics";
+import { utils, write } from "xlsx";
+import { saveAs } from "file-saver";
+import ExcelIcon from "./ExcelIcon";
 
 interface Entry {
   id: number;
   discipline: string;
   firstname?: string;
   lastname?: string;
-  sex?: string;
+  sex?: "MALE" | "FEMALE" | null;
   country?: string;
-  birthdate?: string;
+  birthdate?: string | null;
   seasonbest?: string;
   seasonbestDate?: string;
   seasonbestLocation?: string;
@@ -20,6 +24,7 @@ interface Entry {
 
 function App() {
   const [entries, setEntries] = useState<Entry[]>([]);
+  const ref = useRef<HTMLTableElement>(null);
   const changeHandler = (event: any) => {
     Papa.parse(event.target.files[0], {
       header: true,
@@ -39,10 +44,51 @@ function App() {
     });
     event.target.value = "";
   };
+
+  const downloadHandler = async () => {
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const athlete = await getAthlete(entry.id);
+      if (!athlete) {
+        return;
+      }
+      const personalbests = athlete.personalbests.filter(
+        (pb) => pb.disciplineCode == entry.discipline
+      );
+      const seasonbests = athlete.seasonsbests.filter(
+        (sb) => sb.disciplineCode == entry.discipline
+      );
+      const personalbest =
+        personalbests.length > 0
+          ? personalbests.find((pf) => !pf.indoor) || personalbests[0]
+          : null;
+      const seasonbest =
+        seasonbests.length > 0
+          ? seasonbests.find((pf) => !pf.indoor) || seasonbests[0]
+          : null;
+      entry.firstname = athlete.firstname;
+      entry.lastname = athlete.lastname;
+      entry.sex = athlete.sex;
+      entry.country = athlete.country;
+      entry.birthdate = athlete.birthdate;
+      if (personalbest) {
+        entry.personalbest = personalbest.mark;
+        entry.personalbestDate = personalbest.date;
+        entry.personalbestLocation = personalbest.venue;
+      }
+      if (seasonbest) {
+        entry.seasonbest = seasonbest.mark;
+        entry.seasonbestDate = seasonbest.date;
+        entry.seasonbestLocation = seasonbest.venue;
+      }
+      setEntries([...entries]);
+    }
+  };
+
   return (
     <div className="bg-tourDarkBlue h-screen flex flex-col py-10 gap-4">
       <h1 className="text-tourLightOrange text-4xl font-bold text-center">
-        WorldAthletics Exporter
+        WorldAthletics Export
       </h1>
       <div className="flex flex-col items-center gap-6">
         <div className="flex flex-row gap-2">
@@ -67,14 +113,36 @@ function App() {
               </button>
               <button
                 className="bg-tourLightOrange text-tourDarkBlue px-4 py-2 rounded-md"
-                onClick={() => {}}
+                onClick={downloadHandler}
               >
-                Download
+                Load
+              </button>
+              <button
+                className="bg-tourLightOrange text-tourDarkBlue px-4 py-2 rounded-md"
+                onClick={() => {
+                  const wb = utils.table_to_book(ref.current);
+                  const wbout = write(wb, { bookType: "xlsx", type: "binary" });
+                  function s2ab(s: any) {
+                    const buf = new ArrayBuffer(s.length);
+                    const view = new Uint8Array(buf);
+                    for (let i = 0; i < s.length; i++)
+                      view[i] = s.charCodeAt(i) & 0xff;
+                    return buf;
+                  }
+                  saveAs(
+                    new Blob([s2ab(wbout)], {
+                      type: "application/octet-stream",
+                    }),
+                    "worldathletics.xlsx"
+                  );
+                }}
+              >
+                <ExcelIcon />
               </button>
             </>
           )}
         </div>
-        <table className="table-auto border border-white text-white">
+        <table className="table-auto border border-white text-white" ref={ref}>
           <thead>
             <tr>
               <th className="border  border-white px-4 py-2">Id</th>
@@ -118,13 +186,23 @@ function App() {
                   {entry.country}
                 </td>
                 <td className="border  border-white px-4 py-2">
-                  {entry.birthdate}
+                  {entry.birthdate &&
+                    new Date(entry.birthdate).toLocaleDateString("de-DE", {
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                    })}
                 </td>
                 <td className="border  border-white px-4 py-2">
                   {entry.seasonbest}
                 </td>
                 <td className="border  border-white px-4 py-2">
-                  {entry.seasonbestDate}
+                  {entry.seasonbestDate &&
+                    new Date(entry.seasonbestDate).toLocaleDateString("de-DE", {
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                    })}
                 </td>
                 <td className="border  border-white px-4 py-2">
                   {entry.seasonbestLocation}
@@ -133,7 +211,15 @@ function App() {
                   {entry.personalbest}
                 </td>
                 <td className="border  border-white px-4 py-2">
-                  {entry.personalbestDate}
+                  {entry.personalbestDate &&
+                    new Date(entry.personalbestDate).toLocaleDateString(
+                      "de-DE",
+                      {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                      }
+                    )}
                 </td>
                 <td className="border  border-white px-4 py-2">
                   {entry.personalbestLocation}
